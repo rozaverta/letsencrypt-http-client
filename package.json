@@ -1,20 +1,35 @@
 {
   "name": "letsencrypt-http-client",
   "version": "1.0.0",
-  "description": "",
+  "description": "ACME client for letsencrypt server",
   "main": "index.js",
   "scripts": {
-    "serv": "acme --serv",
-    "example": "acme --serv && acme --cert=./example/config.js"
+    "example:serv": "node ./bin/cli.js --config=./example/config.js --serv",
+    "example:cert": "node ./bin/cli.js --cert --dotenv=example.env"
   },
-  "keywords": [],
-  "author": "GoshaV <gosha@rozaverta.com>",
+  "keywords": [
+    "acme", "letsencrypt", "http-01"
+  ],
+  "author": "GoshaV <gosha@rozaverta.com> (https://rozaverta.com)",
+  "repository": "git://github.com/rozaverta/letsencrypt-http-client.git",
   "license": "ISC",
+  "files": [
+    "bin",
+    "example",
+    "src",
+    ".gitignore",
+    "index.js",
+    "package.json",
+    "README.md"
+  ],
   "dependencies": {
     "rsa-compat": "^2.0.8",
     "node-forge": "^0.10.0",
     "debug": "^4.2.0",
     "node-libcurl": "^2.2.0"
+  },
+  "devDependencies": {
+    "dotenv": "^8.2.0"
   },
   "devEngines": {
     "node": ">=7.x",

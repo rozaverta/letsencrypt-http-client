@@ -1,3 +1,4 @@
+const debug = require('debug')('acme');
 const { curly } = require('node-libcurl');
 const { HTTP2_HEADER_CONTENT_TYPE, HTTP2_HEADER_CONTENT_LENGTH } = require('http2').constants;
 
@@ -103,6 +104,9 @@ module.exports = async function agent(url, options = {}) {
 	// start query
 	let res;
 	const call = (method || 'get').toLowerCase();
+
+	debug('curl:', call, url);
+
 	if(methods.includes(call)) {
 		res = await curly[call](url, opt);
 	}

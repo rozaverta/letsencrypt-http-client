@@ -1,2 +1,9 @@
+# IDE
+/.idea
+*.iml
+
 # Project exclude paths
 /node_modules/
+/.env
+/package-lock.json
+/yarn.lock

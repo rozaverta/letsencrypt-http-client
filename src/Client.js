@@ -100,7 +100,7 @@ class Client {
 		debug(`Submitting new order to ${url} for ${JSON.stringify(domains)}`);
 
 		// load authorizations URL
-		const {body: {authorizations, finalize, ...order}} = await this._signedRequest(url, payload, account.key, account.url);
+		const {body: {authorizations, finalize/*, ...order*/}} = await this._signedRequest(url, payload, account.key, account.url);
 		const fingerprint = RSA.thumbprint(account.key);
 		const tokens = [];
 		const auth = [];
@@ -169,12 +169,18 @@ class Client {
 				keypair: domainKeypair,
 				cert,
 			}, 'json');
+
+		this.clear();
 	}
 
 	async sleep(second) {
 		return new Promise(resolve => {
 			setTimeout(resolve, second * 1000);
 		});
+	}
+
+	clear() {
+		this._fData().write('route.json', '{}');
 	}
 
 	/**
