@@ -1,0 +1,27 @@
+{
+  "name": "letsencrypt-http-client",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "serv": "acme --serv",
+    "example": "acme --serv && acme --cert=./example/config.js"
+  },
+  "keywords": [],
+  "author": "GoshaV <gosha@rozaverta.com>",
+  "license": "ISC",
+  "dependencies": {
+    "rsa-compat": "^2.0.8",
+    "node-forge": "^0.10.0",
+    "debug": "^4.2.0",
+    "node-libcurl": "^2.2.0"
+  },
+  "devEngines": {
+    "node": ">=7.x",
+    "npm": ">=4.x",
+    "yarn": ">=0.21.3"
+  },
+  "bin": {
+    "acme": "./bin/cli.js"
+  }
+}
