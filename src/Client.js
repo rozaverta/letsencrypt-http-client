@@ -74,13 +74,13 @@ class Client {
 		);
 
 		const fd = this._fData();
-		if(!fd.domain(key).exists('cert.json')) {
+		if(!fd.domain(key).exists('cert.pem')) {
 			debug(`Certificate with key ${key} is missing, going to regenerate.`);
 			return true;
 		}
 
-		const body = fd.read('cert.json');
-		const cert = forge.pki.certificateFromPem(JSON.parse(body.toString()).cert);
+		const text = fd.read('cert.pem');
+		const cert = forge.pki.certificateFromPem(text);
 		return certInValid(cert, new Date());
 	}
 
@@ -169,6 +169,16 @@ class Client {
 				keypair: domainKeypair,
 				cert,
 			}, 'json');
+
+		fd.write('cert.key', domainKeypair.privateKeyPem);
+		fd.write('cert.pem', cert);
+
+		const crt = String(cert).match(/-+BEGIN CERTIFICATE-+(.+?)-+END CERTIFICATE-+\n+-+BEGIN CERTIFICATE-+(.+?)-+END CERTIFICATE-/s);
+		const lne = w => `-----${w} CERTIFICATE-----`;
+		if(crt) {
+			fd.write('cert.crt', `${lne('BEGIN')}${crt[1]}${lne('END')}\n`);
+			fd.write('cert.ca',  `${lne('BEGIN')}${crt[2]}${lne('END')}\n`);
+		}
 
 		this.clear();
 	}
