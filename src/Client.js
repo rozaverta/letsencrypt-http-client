@@ -159,7 +159,7 @@ class Client {
 
 		debug('Requesting certificate.');
 		const {body} = await this._signedRequest(finalize, {csr}, account.key, account.url);
-		const {body: cert} = await this._signedRequest(body.certificate, null, account.key, account.url);
+		const {body: cert} = await this._signedRequest(body.certificate, null, account.key, account.url, false);
 
 		// write certificate
 		fd
@@ -262,10 +262,11 @@ class Client {
 	 * @param {Object|null} payload
 	 * @param {Object} keypair
 	 * @param {String|null} kid
-	 * @returns {Promise<{headers: {}, isJson: boolean, message: string, body: *, version: null, cookies: ({expires}|*)[], status: *}>}
+	 * @param {boolean} json
+	 * @returns {Promise<{headers: {}, json: boolean, message: string, body: *, version: string, status: number}>}
 	 * @private
 	 */
-	async _signedRequest(url, payload, keypair, kid = null) {
+	async _signedRequest(url, payload, keypair, kid = null, json = true) {
 		const nonce = await this._nonce();
 		const kp = RSA.import(keypair);
 		const header = {alg: "RS256", jwk: RSA.exportPublicJwk(kp)};
@@ -275,7 +276,7 @@ class Client {
 			Object.assign(kid ? {kid, alg: header.alg} : header, {nonce, url}),
 			payload == null ? '' : Buffer.from(JSON.stringify(payload))
 		);
-		return await this._req(url, {payload: jwsPayload});
+		return await this._req(url, {payload: jwsPayload, json});
 	}
 
 	/**

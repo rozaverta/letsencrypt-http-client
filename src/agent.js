@@ -161,18 +161,14 @@ module.exports = async function agent(url, options = {}) {
 		isJson = true;
 	}
 
+	// any problem
+	if(String(res.headers[HTTP2_HEADER_CONTENT_TYPE]).indexOf('application/problem+json') !== -1) {
+		const {detail} = JSON.parse(res.body);
+		throw new Error(detail || 'JSON parse error');
+	}
+
 	if(json && !isJson) {
-		let message = `Invalid server answer <${url}>, expected JSON data`;
-		if(res.headers[HTTP2_HEADER_CONTENT_TYPE] === 'application/problem+json') {
-			try {
-				const body = JSON.parse(res.body);
-				if(body && body.detail) {
-					message = body.detail;
-				}
-			}
-			catch(e) {}
-		}
-		throw new Error(message);
+		throw new Error(`Invalid server answer <${url}>, expected JSON data`);
 	}
 
 	return {
