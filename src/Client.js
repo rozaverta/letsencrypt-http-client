@@ -1,3 +1,4 @@
+const EventEmitter = require('events').EventEmitter;
 const RSA = require('rsa-compat').RSA;
 const debug = require('debug')('acme');
 const forge = require('node-forge');
@@ -5,7 +6,21 @@ const FData = require('./FData');
 const {generateRSAKeyPair, toAgreement} = require('./helper');
 const agent = require('./agent');
 
-class Client {
+async function promise(client, func, errorEvent = 'error', completeEvent = null) {
+	try {
+		const result = await func.call(client);
+		if(completeEvent) {
+			client.emit(completeEvent, result);
+		}
+		return result;
+	}
+	catch(err) {
+		client.emit(errorEvent, err);
+		throw err;
+	}
+}
+
+class Client extends EventEmitter {
 
 	/**
 	 * @type {{agreement: String, key: *, url: String}}
@@ -34,6 +49,7 @@ class Client {
 	 * config.sourceIp The source IP for Guzzle (via curl.options) to bind to (defaults to 0.0.0.0 [OS default])
 	 *
 	 * @param {{
+	 *     captureRejections?: boolean,
 	 *     mode?: String,
 	 *     basePath?: String,
 	 *     username?: String,
@@ -42,20 +58,29 @@ class Client {
 	 * 
 	 */
 	constructor(config = {}) {
+		super(typeof config.captureRejections === "boolean" ? {captureRejections: config.captureRejections} : {});
 		this._config = config;
-		if (this._option('username', false) === false) {
-			throw new Error('Username not provided');
-		}
 	}
 
 	/**
 	 * Initialize the client
 	 */
 	async init() {
-		//Load the directories from the LE api and load/create account
-		const {body} = await this._req(this._url('directory'));
-		this._directories = body;
-		this._account = await this._getAccount();
+		if(this._account) {
+			return;
+		}
+		const initialize = async () => {
+			if (this._option('username', false) === false) {
+				throw new Error('Username not provided');
+			}
+			//Load the directories from the LE api and load/create account
+			const {body} = await this._req(this._url('directory'));
+			this._directories = body;
+			this._account = await this._getAccount();
+			this._loadEvents();
+			return this._account;
+		};
+		await promise(this, initialize, 'error', 'init');
 	}
 
 	/**
@@ -79,108 +104,122 @@ class Client {
 			return true;
 		}
 
-		const text = fd.read('cert.pem');
-		const cert = forge.pki.certificateFromPem(text);
-		return certInValid(cert, new Date());
+		try {
+			const text = fd.read('cert.pem');
+			const cert = forge.pki.certificateFromPem(text);
+			return certInValid(cert, new Date());
+		}
+		catch(err) {
+			this.emit('error', err);
+			throw err;
+		}
 	}
 
 	async generateCertificate(certificate) {
 		if(!this._account) {
-			throw new Error('Client is not initialized.');
+			const err = new Error('Client is not initialized.');
+			this.emit('error', err);
+			throw err;
 		}
 
-		const fd = this._fData();
-		const {key, domains} = certificate;
-		const account = this._account;
-		const payload = {
-			"identifiers": domains.map(domain => ({type: "dns", value: domain}))
-		};
+		const generate = async () => {
+			const fd = this._fData();
+			const {key, domains} = certificate;
+			const account = this._account;
+			const payload = {
+				"identifiers": domains.map(domain => ({type: "dns", value: domain}))
+			};
 
-		const url = this._url('newOrder');
-		debug(`Submitting new order to ${url} for ${JSON.stringify(domains)}`);
+			const url = this._url('newOrder');
+			debug(`Submitting new order to ${url} for ${JSON.stringify(domains)}`);
 
-		// load authorizations URL
-		const {body: {authorizations, finalize/*, ...order*/}} = await this._signedRequest(url, payload, account.key, account.url);
-		const fingerprint = RSA.thumbprint(account.key);
-		const tokens = [];
-		const auth = [];
+			// load authorizations URL
+			const {body: {authorizations, finalize/*, ...order*/}} = await this._signedRequest(url, payload, account.key, account.url);
+			const fingerprint = RSA.thumbprint(account.key);
+			const tokens = [];
+			const auth = [];
 
-		for(let i = 0; i < authorizations.length; i++) {
-			const {body: {identifier, status, expires, challenges}} = await this._signedRequest(authorizations[i], null, account.key, account.url);
-			const challenge = challenges.find(item => item.type === "http-01");
+			for(let i = 0; i < authorizations.length; i++) {
+				const {body: {identifier, status, expires, challenges}} = await this._signedRequest(authorizations[i], null, account.key, account.url);
+				const challenge = challenges.find(item => item.type === "http-01");
 
-			// http challenge authorization
-			auth.push({
-				authorizationUrl: authorizations[i],
-				identifier,
-				status,
-				expires,
-				challenge,
-				wellKnownUrl: `http://${identifier.value}/.well-known/acme-challenge/${challenge.token}`,
-				keyAuthorization: `${challenge.token}.${fingerprint}`,
-			});
+				// http challenge authorization
+				auth.push({
+					authorizationUrl: authorizations[i],
+					identifier,
+					status,
+					expires,
+					challenge,
+					wellKnownUrl: `http://${identifier.value}/.well-known/acme-challenge/${challenge.token}`,
+					keyAuthorization: `${challenge.token}.${fingerprint}`,
+				});
 
-			tokens.push(challenge.token);
-		}
-
-		fd.domain(null).write('route.json', {fingerprint, tokens}, 'json');
-
-		// try local http connect and validate
-		for(let i = 0; i < auth.length; i++) {
-			const {challenge, wellKnownUrl, keyAuthorization} = auth[i];
-			const {status: httpStatus, body} = await this._req(wellKnownUrl, {json: false});
-			if(httpStatus !== 200 || body !== keyAuthorization) {
-				throw new Error(`Could not verify ownership via local HTTP`);
+				tokens.push(challenge.token);
 			}
 
-			let maxAttempts = this._option('maxAttempts', 15),
-				attempts = maxAttempts,
-				valid = false;
+			fd.domain(null).write('route.json', {fingerprint, tokens}, 'json');
 
-			do {
-				debug('try verify', attempts - maxAttempts + 1, challenge.url);
-				const {body} = await this._signedRequest(challenge.url, {resource: 'challenge', keyAuthorization}, account.key, account.url);
-				valid = body.status === 'valid';
-				if(valid) {
-					break;
+			// try local http connect and validate
+			for(let i = 0; i < auth.length; i++) {
+				const {challenge, wellKnownUrl, keyAuthorization} = auth[i];
+				const {status: httpStatus, body} = await this._req(wellKnownUrl, {json: false});
+				if(httpStatus !== 200 || body !== keyAuthorization) {
+					throw new Error(`Could not verify ownership via local HTTP`);
 				}
-				await this.sleep(Math.ceil(attempts / maxAttempts));
-				maxAttempts--;
-			} while (maxAttempts > 0);
 
-			if(!valid) {
-				throw new Error('Could not verify ownership via HTTP');
+				let maxAttempts = this._option('maxAttempts', 15),
+					attempts = maxAttempts,
+					valid = false;
+
+				do {
+					debug('try verify', attempts - maxAttempts + 1, challenge.url);
+					const {body} = await this._signedRequest(challenge.url, {resource: 'challenge', keyAuthorization}, account.key, account.url);
+					valid = body.status === 'valid';
+					if(valid) {
+						break;
+					}
+					await this.sleep(Math.ceil(attempts / maxAttempts));
+					maxAttempts--;
+				} while (maxAttempts > 0);
+
+				if(!valid) {
+					throw new Error('Could not verify ownership via HTTP');
+				}
 			}
-		}
 
-		// create certificate
-		const domainKeypair = await generateRSAKeyPair(this._config);
-		const csr = RSA.generateCsrDerWeb64(domainKeypair, domains);
+			// create certificate
+			const domainKeypair = await generateRSAKeyPair(this._config);
+			const csr = RSA.generateCsrDerWeb64(domainKeypair, domains);
 
-		debug('Requesting certificate.');
-		const {body} = await this._signedRequest(finalize, {csr}, account.key, account.url);
-		const {body: cert} = await this._signedRequest(body.certificate, null, account.key, account.url, false);
+			debug('Requesting certificate.');
+			const {body} = await this._signedRequest(finalize, {csr}, account.key, account.url);
+			const {body: cert} = await this._signedRequest(body.certificate, null, account.key, account.url, false);
 
-		// write certificate
-		fd
-			.domain(key)
-			.write('cert.json', {
+			// write certificate
+			const data = {
 				key,
+				domains,
 				keypair: domainKeypair,
 				cert,
-			}, 'json');
+			};
 
-		fd.write('cert.key', domainKeypair.privateKeyPem);
-		fd.write('cert.pem', cert);
+			fd.domain(key).write('cert.json', data, 'json');
+			fd.write('cert.key', domainKeypair.privateKeyPem);
+			fd.write('cert.pem', cert);
 
-		const crt = String(cert).match(/-+BEGIN CERTIFICATE-+(.+?)-+END CERTIFICATE-+\n+-+BEGIN CERTIFICATE-+(.+?)-+END CERTIFICATE-/s);
-		const lne = w => `-----${w} CERTIFICATE-----`;
-		if(crt) {
-			fd.write('cert.crt', `${lne('BEGIN')}${crt[1]}${lne('END')}\n`);
-			fd.write('cert.ca',  `${lne('BEGIN')}${crt[2]}${lne('END')}\n`);
-		}
+			const crt = String(cert).match(/-+BEGIN CERTIFICATE-+(.+?)-+END CERTIFICATE-+\n+-+BEGIN CERTIFICATE-+(.+?)-+END CERTIFICATE-/s);
+			const lne = w => `-----${w} CERTIFICATE-----`;
+			if(crt) {
+				fd.write('cert.crt', `${lne('BEGIN')}${crt[1]}${lne('END')}\n`);
+				fd.write('cert.ca',  `${lne('BEGIN')}${crt[2]}${lne('END')}\n`);
+			}
 
-		this.clear();
+			this.clear();
+
+			return data;
+		};
+
+		await promise(this, generate, 'cert-error', 'cert-update');
 	}
 
 	async sleep(second) {
@@ -330,6 +369,30 @@ class Client {
 	 */
 	_fData() {
 		return new FData(this._config);
+	}
+
+	/**
+	 * Load events
+	 * @private
+	 */
+	_loadEvents() {
+		const events = this._option('events', {});
+		const add = (name, listener) => {
+			if(typeof listener === "function") {
+				this.on(name, listener);
+			}
+		};
+		if(events != null && typeof events === "object") {
+			Object.keys(events).forEach(event => {
+				const listener = events[event];
+				if(Array.isArray(listener)) {
+					listener.forEach(one => add(event, one));
+				}
+				else {
+					add(event, listener);
+				}
+			});
+		}
 	}
 }
 
