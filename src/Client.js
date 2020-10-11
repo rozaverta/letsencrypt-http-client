@@ -138,7 +138,7 @@ class Client {
 				valid = false;
 
 			do {
-				console.log('try validate', maxAttempts, challenge.url);
+				debug('try verify', attempts - maxAttempts + 1, challenge.url);
 				const {body} = await this._signedRequest(challenge.url, {resource: 'challenge', keyAuthorization}, account.key, account.url);
 				valid = body.status === 'valid';
 				if(valid) {
@@ -159,7 +159,7 @@ class Client {
 
 		debug('Requesting certificate.');
 		const {body} = await this._signedRequest(finalize, {csr}, account.key, account.url);
-		const {body: cert} = await this._req(body.certificate, {json: false});
+		const {body: cert} = await this._signedRequest(body.certificate, null, account.key, account.url);
 
 		// write certificate
 		fd
