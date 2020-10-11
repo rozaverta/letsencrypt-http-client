@@ -11,7 +11,9 @@ module.exports = async function acmeServer(config) {
 		});
 	});
 	return new Promise((resolve, reject) => {
-		server.listen(80, (err) => {
+		const port = parseInt(process.env.ACME_HTTP_PORT || 80);
+		const host = process.env.ACME_HTTP_HOST || '127.0.0.1';
+		server.listen(port, host, (err) => {
 			if(err) {
 				debug('Cannot create http server', err);
 				reject(err);
