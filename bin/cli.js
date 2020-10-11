@@ -139,11 +139,11 @@ else if(isSingle('cert')) {
 
 			const updated = result.filter(item => item.updated === true).length;
 			const errors = result.filter(item => !! item.err).length;
-			const ignored = result.length - updated - errors;
+			const skipped = result.length - updated - errors;
 
 			updated && debug('Updating cert:', updated);
 			errors && debug('Error cert:', errors);
-			ignored && debug('Ignored cert:', ignored);
+			skipped && debug('Skipped cert:', skipped);
 
 			client.clear();
 		},
