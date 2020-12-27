@@ -157,13 +157,16 @@ module.exports = async function agent(url, options = {}) {
 	const contentType = String(responseHeaders[HTTP2_HEADER_CONTENT_TYPE] || '').toLowerCase().trim();
 
 	if(contentType === JSON_TYPE || contentType.indexOf(JSON_TYPE + ';') === 0) {
-		body = JSON.parse(body);
+		if(typeof body === "string") {
+			body = JSON.parse(body);
+		}
 		isJson = true;
 	}
 
 	// any problem
 	if(String(res.headers[HTTP2_HEADER_CONTENT_TYPE]).indexOf('application/problem+json') !== -1) {
-		const {detail} = JSON.parse(res.body);
+		const json = typeof res.body === "string" ? JSON.parse(res.body) : res.body;
+		const {detail} = json;
 		throw new Error(detail || 'JSON parse error');
 	}
 
